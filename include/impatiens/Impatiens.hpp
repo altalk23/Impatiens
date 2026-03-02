@@ -1,4 +1,5 @@
 #pragma once
+#include "Macros.hpp"
 #include "Runtime.hpp"
 #include "Traits.hpp"
 
