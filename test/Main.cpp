@@ -18,6 +18,8 @@ struct A {
     void bar(int a, float& b, bool c) const {
         IMPATIENS_HANDLE(A, bar, a, b, c);
 
+        b += 1.f;
+
         g_vec.push_back(67);
     }
 
@@ -27,13 +29,14 @@ struct A {
     }
 };
 
+// only needed for using modify to hook c++ functions
 template <class Derived>
-struct impatiens::Modify<Derived, A> : impatiens::traits::BaseExposer<A> {
+struct IMPATIENS_MODIFY_CLASS(A) {
     static constexpr auto modify() {
-        IMPATIENS_MODIFY(foo);
-        IMPATIENS_MODIFY(foo, int);
-        IMPATIENS_MODIFY(bar, int, float&, bool);
-        IMPATIENS_MODIFY(baz, double);
+        IMPATIENS_MODIFY_OVERLOADED(A, foo, foo);
+        IMPATIENS_MODIFY_OVERLOADED(A, foo, foo2, int);
+        IMPATIENS_MODIFY(A, bar, int, float&, bool);
+        IMPATIENS_MODIFY(A, baz, double);
     }
 };
 
@@ -42,10 +45,16 @@ struct B : impatiens::Modify<B, A> {
         return 10;
     }
 
+    void foo(int a) {}
+
     void bar(int a, float& b, bool c) const {
         A::bar(a, b, c);
         g_vec.push_back(42);
         A::bar(a, b, c);
+    }
+
+    static float baz(double d) {
+        return A::baz(d) + 2.f;
     }
 };
 
@@ -59,8 +68,10 @@ TEST_CASE("Modify") {
         aObj.bar(a, b, c);
         REQUIRE(g_vec.size() == 1);
         REQUIRE(g_vec[0] == 67);
+        REQUIRE(b == 1.f);
 
         REQUIRE(aObj.foo() == 5);
+        REQUIRE(A::baz(3.14) == 3.14f);
 
         B::modify();
 
@@ -69,7 +80,9 @@ TEST_CASE("Modify") {
         REQUIRE(g_vec[1] == 67);
         REQUIRE(g_vec[2] == 42);
         REQUIRE(g_vec[3] == 67);
+        REQUIRE(b == 3.f);
 
         REQUIRE(aObj.foo() == 10);
+        REQUIRE(A::baz(0.0) == 2.0f);
     }
 }

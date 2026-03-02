@@ -42,32 +42,30 @@
 #define IMPATIENS_EXPAND_CALL_PARAMETERS(...) this __VA_OPT__(, __VA_ARGS__)
 #define IMPATIENS_EXPAND_CALL_PARAMETERS_STATIC(...) __VA_ARGS__
 
-#define IMPATIENS_HANDLE_FUNCTION_OVERLOADED_INNER(                                           \
-    Line_, CallerExpand_, Class_, Function_, FunctionID_, ...                                 \
-)                                                                                             \
-    impatiens::OpaqueFunctionHandle nextFunctionHandle;                                       \
-    {                                                                                         \
-        using ClassType = Class_;                                                             \
-        using ResolveType =                                                                   \
-            impatiens::traits::Resolve<IMPATIENS_APPLY(IMPATIENS_ADD_DECLTYPE, __VA_ARGS__)>; \
-        static auto constexpr Function = ResolveType::resolve(&Class_::Function_);            \
-        using MetadataType = impatiens::traits::Metadata<decltype(Function)>;                 \
-        static auto constexpr UUID = impatiens::traits::Comparator<Function>::uuid;           \
-        (void)impatiens::traits::StaticRegister<[]() {                                        \
-            impatiens::Runtime::get().registerMapping(                                        \
-                UUID, IMPATIENS_STRINGIFY(Class_) "::" FunctionID_                            \
-            );                                                                                \
-        }>{};                                                                                 \
-        nextFunctionHandle = impatiens::Runtime::get().getNextFunction(UUID);                 \
-        if (auto function = static_cast<impatiens::RuntimeFunctionType<MetadataType> const*>( \
-                nextFunctionHandle.function                                                   \
-            )) {                                                                              \
-            return function->function(CallerExpand_(__VA_ARGS__));                            \
-        }                                                                                     \
+#define IMPATIENS_HANDLE_INNER(Line_, CallerExpand_, Class_, Function_, FunctionID_, ...)      \
+    impatiens::OpaqueFunctionHandle IMPATIENS_CONCAT(nextHandle, Line_);                       \
+    {                                                                                          \
+        using ClassType = Class_;                                                              \
+        using ResolveType =                                                                    \
+            impatiens::traits::Resolve<IMPATIENS_APPLY(IMPATIENS_ADD_DECLTYPE, __VA_ARGS__)>;  \
+        static auto constexpr Function = ResolveType::resolve(&Class_::Function_);             \
+        using MetadataType = impatiens::traits::Metadata<decltype(Function)>;                  \
+        static auto constexpr UUID = impatiens::traits::Comparator<Function>::uuid;            \
+        (void)impatiens::traits::StaticRegister<[]() {                                         \
+            impatiens::Runtime::get().registerMapping(                                         \
+                UUID, IMPATIENS_STRINGIFY(Class_) "::" FunctionID_                             \
+            );                                                                                 \
+        }>{};                                                                                  \
+        IMPATIENS_CONCAT(nextHandle, Line_) = impatiens::Runtime::get().getNextFunction(UUID); \
+        if (auto function = static_cast<impatiens::RuntimeFunctionType<MetadataType> const*>(  \
+                IMPATIENS_CONCAT(nextHandle, Line_).function                                   \
+            )) {                                                                               \
+            return function->operator()(CallerExpand_(__VA_ARGS__));                           \
+        }                                                                                      \
     }
 
 #define IMPATIENS_HANDLE(Class_, Function_, ...) \
-    IMPATIENS_HANDLE_FUNCTION_OVERLOADED_INNER(  \
+    IMPATIENS_HANDLE_INNER(                      \
         __LINE__,                                \
         IMPATIENS_EXPAND_CALL_PARAMETERS,        \
         Class_,                                  \
@@ -77,7 +75,7 @@
     )
 
 #define IMPATIENS_HANDLE_STATIC(Class_, Function_, ...) \
-    IMPATIENS_HANDLE_FUNCTION_OVERLOADED_INNER(         \
+    IMPATIENS_HANDLE_INNER(                             \
         __LINE__,                                       \
         IMPATIENS_EXPAND_CALL_PARAMETERS_STATIC,        \
         Class_,                                         \
@@ -87,7 +85,7 @@
     )
 
 #define IMPATIENS_HANDLE_OVERLOADED(Class_, Function_, FunctionID_, ...) \
-    IMPATIENS_HANDLE_FUNCTION_OVERLOADED_INNER(                          \
+    IMPATIENS_HANDLE_INNER(                                              \
         __LINE__,                                                        \
         IMPATIENS_EXPAND_CALL_PARAMETERS,                                \
         Class_,                                                          \
@@ -97,7 +95,7 @@
     )
 
 #define IMPATIENS_HANDLE_OVERLOADED_STATIC(Class_, Function_, FunctionID_, ...) \
-    IMPATIENS_HANDLE_FUNCTION_OVERLOADED_INNER(                                 \
+    IMPATIENS_HANDLE_INNER(                                                     \
         __LINE__,                                                               \
         IMPATIENS_EXPAND_CALL_PARAMETERS_STATIC,                                \
         Class_,                                                                 \
@@ -106,7 +104,7 @@
         __VA_ARGS__                                                             \
     )
 
-#define IMPATIENS_MODIFY(Function_, ...)                                                                \
+#define IMPATIENS_MODIFY_INNER(Class_, Function_, FunctionID_, ...)                                     \
     {                                                                                                   \
         static constexpr auto DerivedFunction =                                                         \
             traits::Resolve<__VA_ARGS__>::resolve(&Derived::Function_);                                 \
@@ -130,11 +128,20 @@
                         );                                                                              \
                     }                                                                                   \
                 );                                                                                      \
-            static constexpr auto BaseUUID = BaseComparator::uuid;                                      \
             if (DerivedComparator{} != BaseComparator{}) {                                              \
                 Runtime::get().insertHook(                                                              \
-                    BaseUUID, new RuntimeFunctionType<DerivedMetadata>(DerivedLambda)                   \
+                    IMPATIENS_STRINGIFY(Class_) "::" FunctionID_,                                       \
+                    new PointerFunctionType<DerivedMetadata>(DerivedLambda)                             \
                 );                                                                                      \
             }                                                                                           \
         }                                                                                               \
     }
+
+#define IMPATIENS_MODIFY(Class_, Function_, ...) \
+    IMPATIENS_MODIFY_INNER(Class_, Function_, IMPATIENS_STRINGIFY(Function_), __VA_ARGS__)
+
+#define IMPATIENS_MODIFY_OVERLOADED(Class_, Function_, FunctionID_, ...) \
+    IMPATIENS_MODIFY_INNER(Class_, Function_, IMPATIENS_STRINGIFY(FunctionID_), __VA_ARGS__)
+
+#define IMPATIENS_MODIFY_CLASS(Class_) \
+    impatiens::Modify<Derived, Class_> : impatiens::traits::BaseExposer<Class_>

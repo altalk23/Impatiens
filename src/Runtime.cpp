@@ -36,6 +36,45 @@ OpaqueFunctionHandle& OpaqueFunctionHandle::operator=(OpaqueFunctionHandle&& oth
     return *this;
 }
 
+// string map stuff
+
+namespace {
+
+    inline uint64_t fnv1aHash(char const* str) {
+        uint64_t hash = 0xcbf29ce484222325;
+        while (*str) {
+            hash ^= *str++;
+            hash *= 0x100000001b3;
+        }
+        return hash;
+    }
+
+    inline uint64_t fnv1aHash(std::string_view str) {
+        uint64_t hash = 0xcbf29ce484222325;
+        for (char c : str) {
+            hash ^= c;
+            hash *= 0x100000001b3;
+        }
+        return hash;
+    }
+
+    struct StringHash {
+        using is_transparent = void;
+
+        size_t operator()(char const* str) const {
+            return fnv1aHash(str);
+        }
+
+        size_t operator()(std::string_view str) const {
+            return fnv1aHash(str);
+        }
+
+        size_t operator()(std::string const& str) const {
+            return fnv1aHash(str);
+        }
+    };
+}
+
 // Runtime
 
 class Runtime::Impl {
@@ -55,8 +94,7 @@ public:
 
     static thread_local inline std::vector<StackContent> callStack;
 
-    // todo: transparent hash&equal
-    std::unordered_map<std::string, traits::UUIDType> nameToUUIDMap;
+    std::unordered_map<std::string, traits::UUIDType, StringHash, std::equal_to<>> nameToUUIDMap;
 
     std::unordered_map<traits::UUIDType, std::unique_ptr<FunctionContent>> functionMap;
 };
@@ -71,9 +109,9 @@ Runtime& Runtime::get() {
 }
 
 void Runtime::registerMapping(traits::UUIDType uuid, std::string name) {
-    // std::cout << "Registering mapping: " << name << " -> " << (void*)uuid << std::endl;
-    m_impl->nameToUUIDMap[name] = uuid;
-    m_impl->functionMap[uuid] = std::make_unique<Impl::FunctionContent>(uuid);
+    std::cout << "Registering mapping: " << name << " -> " << (void*)uuid << std::endl;
+    m_impl->nameToUUIDMap.insert({std::move(name), uuid});
+    m_impl->functionMap.insert({uuid, std::make_unique<Impl::FunctionContent>(uuid)});
 }
 
 OpaqueFunctionHandle Runtime::getNextFunction(traits::UUIDType uuid) {
@@ -135,16 +173,23 @@ void Runtime::returnFunctionHandle(OpaqueFunctionHandle const* handle) {
     }
 }
 
-bool Runtime::insertHook(traits::UUIDType uuid, OpaqueFunction const* function) {
-    // std::cout << "Inserting hook: " << (void*)function << " -> " << (void*)uuid << std::endl;
+bool Runtime::insertHook(std::string_view name, OpaqueFunction const* function) {
+    std::cout << "Inserting hook: " << (void*)function << " -> " << name << std::endl;
 
-    auto iterator = m_impl->functionMap.find(uuid);
-    if (iterator == m_impl->functionMap.end()) {
+    auto iterator = m_impl->nameToUUIDMap.find(name);
+    if (iterator == m_impl->nameToUUIDMap.end()) {
         // function not found, how did that happen?
         return false;
     }
-    auto functionContent = iterator->second.get();
+    auto uuid = iterator->second;
+    std::cout << "Found UUID: " << (void*)uuid << std::endl;
 
-    functionContent->functions.insert(functionContent->functions.begin(), function);
+    auto functionContent = m_impl->functionMap.find(uuid);
+    if (functionContent == m_impl->functionMap.end()) {
+        // function not found, how did that happen?
+        return false;
+    }
+
+    functionContent->second->functions.insert(functionContent->second->functions.begin(), function);
     return true;
 }

@@ -27,47 +27,15 @@ namespace impatiens {
     //     std::tuple<Params...> data;
     // };
 
-    class OpaqueFunction {};
+    class OpaqueFunction {
+    public:
+        virtual ~OpaqueFunction() = default;
+    };
 
     template <class Return, class... Params>
     class RuntimeFunction : public OpaqueFunction {
     public:
-        Return (*function)(Params...);
-
-        RuntimeFunction(Return (*func)(Params...)) : function(func) {}
-
-        // void invoke(OpaqueReturn* returnValue, OpaqueParameters* parameters) {
-        //     auto* typedReturnValue = static_cast<RuntimeReturn<Return>*>(returnValue);
-        //     auto* typedReturn = &typedReturnValue->data;
-        //     auto* typedParameters = static_cast<RuntimeParameters<Params...>*>(parameters);
-
-        //     if constexpr (!std::is_void_v<Return>) {
-        //         new (std::launder(typedReturn)) Return(
-        //             std::apply(
-        //                 [this](auto&&... args) {
-        //                     return RuntimeReturn<Return>{
-        //                         .data = std::bit_cast<std::array<std::byte, sizeof(Return)>>(
-        //                             function(std::forward<decltype(args)>(args)...)
-        //                         )
-        //                     };
-        //                 },
-        //                 typedParameters->data
-        //             )
-        //         );
-        //     }
-        //     else {
-        //         std::apply(
-        //             [this](auto&&... args) {
-        //                 return RuntimeReturn<Return>{
-        //                     .data = std::bit_cast<std::array<std::byte, sizeof(Return)>>(
-        //                         function(std::forward<decltype(args)>(args)...)
-        //                     )
-        //                 };
-        //             },
-        //             typedParameters->data
-        //         );
-        //     }
-        // }
+        virtual Return operator()(Params... params) const = 0;
     };
 
     template <class Return, template <class...> class ParamList, class... Params>
@@ -76,6 +44,27 @@ namespace impatiens {
     template <class MetadataType>
     using RuntimeFunctionType =
         RuntimeFunction<typename MetadataType::ReturnType, typename MetadataType::LambdaArgsType>;
+
+    template <class Return, class... Params>
+    class PointerFunction : public RuntimeFunction<Return, Params...> {
+    public:
+        Return (*function)(Params...);
+
+        PointerFunction(Return (*func)(Params...)) : function(func) {}
+
+        Return operator()(Params... params) const override {
+            return this->function(params...);
+        }
+    };
+
+    template <class Return, template <class...> class ParamList, class... Params>
+    struct PointerFunction<Return, ParamList<Params...>> : PointerFunction<Return, Params...> {
+        using PointerFunction<Return, Params...>::PointerFunction;
+    };
+
+    template <class MetadataType>
+    using PointerFunctionType =
+        PointerFunction<typename MetadataType::ReturnType, typename MetadataType::LambdaArgsType>;
 
     struct OpaqueFunctionHandle {
     private:
@@ -108,7 +97,7 @@ namespace impatiens {
     public:
         static Runtime& get();
 
-        bool insertHook(traits::UUIDType uuid, OpaqueFunction const* function);
+        bool insertHook(std::string_view name, OpaqueFunction const* function);
 
         void registerMapping(traits::UUIDType uuid, std::string name);
 
